@@ -1,0 +1,19 @@
+on:
+  push:
+jobs:
+  test_unit:
+    name: test unit 
+    strategy:
+      matrix:
+        version: ["1.17.x","1.18.x","1.19.x"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: checking go dependancies
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{matrix.version}}
+      - name: install dependancies
+        run: go get .
+      - name: build test
+        run: go test./...
