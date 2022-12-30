@@ -2,18 +2,18 @@ on:
   push:
 jobs:
   test_unit:
-    name: test unit 
+    name: unitaire
     strategy:
       matrix:
         version: ["1.17","1.18","1.19"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: checking go dependancies
+      - name:  go dependancies
         uses: actions/setup-go@v3
         with:
           go-version: ${{matrix.version}}
-      - name: install dependancies
+      - name: install 
         run: go get .
-      - name: build test
-        run: go test./...
+      - name: test
+        run: go test ./...
