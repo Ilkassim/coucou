@@ -15,7 +15,7 @@ jobs:
         run: |
              venv GOOS=windows GOARCH=amd64 go build runs-o
              venv GOOS=linus GOARCH=amd64 go build runs-o
-      - uses:
+      
 
 
 
