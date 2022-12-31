@@ -8,13 +8,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: setup go
+        uses: actions/setup-go@v3
         with: 
           go-version: '1.18'
-        run: go get .
+      - run: go get .
       - name: windows 
         run: |
-             venv GOOS=windows GOARCH=amd64 go build runs-o
-             venv GOOS=linus GOARCH=amd64 go build runs-o
+             env GOOS=windows GOARCH=amd64 go build -o .
+             env GOOS=linus GOARCH=amd64 go build -o .
+             ls
+
       
 
 
