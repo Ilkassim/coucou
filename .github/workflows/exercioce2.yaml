@@ -1,74 +1,129 @@
+name: integration continue
 on:
   pull_request:
-    branches: [master, main]
+    branches: 
+     - main
   push:
     branches:
       - main
-  workflow_dispatch:
-
 jobs:
-  semgrep:
-    name: Semgrep
+  frontend-test:
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    container: # Use a container
-      image: returntocorp/semgrep:1.1.0
-    # don't execute this workflow for dependabot pr
-    if: (github.actor != 'dependabot[bot]')
+    defaults:
+      run:
+        working-directory: frontend
+
     steps:
-      - name: "Checkout source"
-        uses: actions/checkout@v3
+    - uses: actions/checkout@v3
+
+    - name: Use node.js 17
+      uses: actions/setup_node@v3
+      with:
+        node-version: 17
+    - name: Install dependencies
+      run: npm install
+    - name: launch test
+      run: npm test
+
+  backend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      mysql:
+        image: mysql:8
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+        options: --health-cmd="mysqladmin ping" --health-interval 10s --health-timeout
+    env:
+      PouletMayo_Db_Host: localhost
+      PouletMayo_Db_User: root
+      PouletMayo_Db_Password: ${{ secrets.CI_DB_PASSWORD }}
+      PouletMayo_Db_Database: pouletMayo
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: setup .NET core SDK 6
+      uses: actions/setup_dotnet@v2
+      with:
+        dotnet-version: 6.0.X
+    - name: Install dependencies
+      run: dotnet restore
+    - name: Test
+      run: dotnet test --no-restore
+  
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test]
+
+
+    services:
+      mysql:
+        image: mysql:8
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.CI_DB_PASSWORD }}
+        options: --health-cmd="mysqladmin ping" --health-interval 10s --health-timeout
+    env: 
+      MYSQL_PWD: ${{ secrets.CI_DB_PASSWORD }}
+    
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Run database migration
+      run: ./bootstrap-mysql.sh
+      working-directory: mysql
+
+    - name: Start components
+      run: docker compose -f docker-compose.build.yml up -d
+      env:
+        DOCKER_NETWORK: ${{ job.services.mysql.network }}
       
-      - name: "Execute semgrep"
-        run: semgrep ci --sarif --output=semgrep.sarif
-        env:
-          # Specify the ruleset to use
-          SEMGREP_RULES: p/default
+    - name: Run integration test
+      run: |
+        wget -q https://github.com/grafana/k6/releases/download/v0.37.0/k6-v0.37.0-linux
+        tar -xzf K6-v0.37.0-linux-amd64.tar.gz
+        chmod +x K6-v0.37.0-linux-amd64/k6
+        K6-v0.37.0-linux-amd64/k6 run script.js
+      working-directory: K6
 
-      - name: "Upload SARIF file for GitHub CodeQL"
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: semgrep.sarif
-        if: always()
-  hadolint:
-    name: "Hadolint scan"
+    - name: Stop components
+      run: docker compose -f docker-compose.build.yml down
+  build-image:
     runs-on: ubuntu-latest
+    needs: [integration-test]
+    if: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+
+    strategy:
+      matrix:
+        component: ["frontend", "backend"]
+    
     permissions:
-      security-events: write
-    # don't execute this workflow for dependabot pr
-    if: (github.actor != 'dependabot[bot]')
+      packages: write
+      contents: read
+    
     steps:
-      - name: "Checkout code"
-        uses: actions/checkout@v3
+    - uses: actions/checkout@v3
 
-      - name: "Run hadolint"
-        uses: hadolint/hadolint-action@v2.1.0
-        with:
-          dockerfile: ./Dockerfile
-          format: sarif
-          output-file: hadolint-results.sarif
+    - name: log in to registry 
+      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin 
 
-      - name: "Upload analysis results to GitHub"
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: hadolint-results.sarif
-          wait-for-processing: true
-  lint:
-    name: Lint Code Base
-    runs-on: ubuntu-latest
-    if: (github.actor != 'dependabot[bot]') # skip execution for dependabot
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: 'Lint Code Base'
-        uses: github/super-linter/slim@v4
-        env:
-          VALIDATE_ALL_CODEBASE: false # disabled so that the scan is faster
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # needed to get access to PR
+    - name: Build the Docker image
+      uses: docker/ build-push-action@v2
+      with: 
+        context: ${{ matrix.component}}
+        file: ${{ matrix.component }}/Dockerfile
+        push: true
+        tags: ghcr.io /${{ github.repository_owner }}/spm-$ {{ matrix.component }} :${{ github.ref_name}}
 
 
+  
+
+
+
+
+    
