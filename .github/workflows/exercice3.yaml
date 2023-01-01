@@ -1,9 +1,11 @@
-name: Go
+name: Test_appli
 
 on: [push]
 
 jobs:
-  build:
+  test_unitaire:
+  
+
 
     runs-on: ubuntu-latest
     strategy:
